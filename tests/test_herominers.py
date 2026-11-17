@@ -16,7 +16,7 @@ JOB = {"job_id": "sample", "header": "00" * 76, "target": "00000000000007fff8000
 
 class ProtocolTests(unittest.TestCase):
     def test_job_validation(self):
-        p = HeroMiners("localhost", 1, "wallet", "worker")
+        p = HeroMiners("127.0.0.1", 1, "wallet", "worker")
         header, target, jid = p.parse_job(JOB)
         self.assertEqual(len(header), 76)
         self.assertGreater(target, 0)
@@ -60,8 +60,17 @@ class ProtocolTests(unittest.TestCase):
         self.assertFalse(t.is_alive())
         self.assertEqual(errors, [])
 
+    def test_dns_over_https(self):
+        from unittest.mock import patch, MagicMock
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"Answer":[{"type":1,"data":"192.0.2.1"}]}'
+        p = HeroMiners("sg.pearl.herominers.com", 1200, "wallet", "worker")
+        with patch("urllib.request.urlopen", return_value=response), patch("socket.create_connection") as create:
+            p._open_socket()
+            create.assert_called_once_with(("192.0.2.1", 1200), timeout=10)
+
     def test_rejected_authorization_closes_socket(self):
-        p = HeroMiners("localhost", 1, "wallet", "worker")
+        p = HeroMiners("127.0.0.1", 1, "wallet", "worker")
         from unittest.mock import patch, MagicMock
         connection = MagicMock()
         connection.recv.return_value = b'{"id":1,"result":false,"error":{"code":20}}\n'

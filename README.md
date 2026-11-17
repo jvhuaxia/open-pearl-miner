@@ -6,7 +6,7 @@ Adds `--pool-provider herominers` to the torch-free Windows/Linux miner.
 .\p40-miner.exe --pool-provider herominers --pool sg.pearl.herominers.com:1200 --wallet YOUR_PRL_ADDRESS --worker rig1
 ```
 
-Plain TCP; default endpoint is Singapore. Use `--devices 0` to select a GPU.
+Plain TCP; default endpoint is Singapore. HeroMiners hostnames use Google DNS-over-HTTPS (no system DNS changes); explicit IPs connect directly. Use `--devices 0` to select a GPU.
 The original **2% developer fee** is retained, including on HeroMiners; no
 personal payout address is bundled. CPU host work still constructs Merkle proofs;
 this is GPU mining, but it is not a zero-CPU-usage application.

@@ -5,6 +5,9 @@ miner and the standalone (torch-free) miner.
 from __future__ import annotations
 
 import json
+import ipaddress
+import urllib.parse
+import urllib.request
 import select
 import socket
 import threading
@@ -42,9 +45,12 @@ class LuckyPool:
         self.io_lock = threading.Lock()
 
     def connect(self):
-        self.s = socket.create_connection((self.host, self.port), timeout=30)
+        self.s = self._open_socket()
         self.s.settimeout(60)
         self._send("mining.authorize", {"wallet": self.wallet, "worker": self.worker})
+
+    def _open_socket(self):
+        return socket.create_connection((self.host, self.port), timeout=30)
 
     def _send(self, method, params, mid=1):
         self.s.sendall((json.dumps({"id": mid, "method": method, "params": params}) + "\n").encode())
@@ -138,6 +144,32 @@ class LuckyPool:
 
 class HeroMiners(LuckyPool):
     """HeroMiners object Stratum; v3 proofs only. No GPU code changes."""
+
+    def _open_socket(self):
+        # Match the existing SRBMiner setup: avoid poisoned local DNS.
+        # Explicit IPs (including local mock servers) require no lookup.
+        try:
+            ipaddress.ip_address(self.host)
+            return socket.create_connection((self.host, self.port), timeout=30)
+        except ValueError:
+            pass
+        url = "https://dns.google/resolve?" + urllib.parse.urlencode({"name": self.host, "type": "A"})
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:
+                answer = json.load(response)
+            addresses = [item["data"] for item in answer.get("Answer", []) if item.get("type") == 1]
+            if not addresses:
+                raise ValueError("no A records")
+            last_error = None
+            for address in addresses:
+                ipaddress.IPv4Address(address)
+                try:
+                    return socket.create_connection((address, self.port), timeout=10)
+                except OSError as e:
+                    last_error = e
+            raise ConnectionError(str(last_error))
+        except (OSError, ValueError, KeyError) as e:
+            raise ConnectionError("HeroMiners DNS/connect failed: " + str(e)) from e
 
     def connect(self):
         super().connect()
