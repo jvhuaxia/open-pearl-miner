@@ -1,3 +1,28 @@
+# HeroMiners fork (experimental)
+
+Adds `--pool-provider herominers` to the torch-free Windows/Linux miner.
+
+```powershell
+.\p40-miner.exe --pool-provider herominers --pool sg.pearl.herominers.com:1200 --wallet YOUR_PRL_ADDRESS --worker rig1
+```
+
+Plain TCP; default endpoint is Singapore. Use `--devices 0` to select a GPU.
+The original **2% developer fee** is retained, including on HeroMiners; no
+personal payout address is bundled. CPU host work still constructs Merkle proofs;
+this is GPU mining, but it is not a zero-CPU-usage application.
+
+Validation status: live HeroMiners object authorization and v3 job reception
+verified; mock protocol tests cover authorization, malformed/versioned jobs and
+submission framing. **No real GPU accepted-share or speed benchmark yet.**
+Unsupported certificate versions fail explicitly instead of silently mining.
+The original LuckyPool mode remains the default.
+
+Windows builds: Actions → Windows HeroMiners build → Run workflow.
+Download the Windows ZIP artifact; extract the entire folder before running.
+GitHub-hosted runners have no NVIDIA GPU: building is not a mining validation.
+
+---
+
 # Open Pearl Miner (Nvidia/AMD)
 
 A high-performance **Pearl (PRL)** proof-of-work miner for **NVIDIA and AMD (beta) GPUs**.
@@ -219,7 +244,7 @@ p40-miner.exe --solo GATEWAY_HOST:PORT
 ```
 
 No wallet flag needed — the node's configured address receives block rewards.
-The same 1% dev fee applies (GPU mines to the dev's pool wallet during the 1% window).
+The same 2% dev fee applies (GPU mines to the dev's pool wallet during the 2% window).
 
 ## HiveOS
 
@@ -240,6 +265,6 @@ HiveOS images and newer.
 
 **Pascal Pearl Miner License** — see [LICENSE](LICENSE).
 
-- Free to use, modify, and distribute (including commercially), **provided the 1% dev fee is retained**.
+- Free to use, modify, and distribute (including commercially), **provided the 2% dev fee is retained**.
 - Removal or bypass of the dev fee is a license violation in any distributed or commercial deployment.
 - **Personal-use exemption**: you may disable the dev fee for strictly personal, non-commercial mining on your own hardware — but the modified version must not be distributed.

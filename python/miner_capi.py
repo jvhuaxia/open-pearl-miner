@@ -24,7 +24,7 @@ import numpy as np
 import cuda_capi as cc
 import pearl_host
 from pool_common import (DEV_ADDRESS, DEV_FEE, K, M, N, R, DevFeeScheduler,
-                         LuckyPool, real_config)
+                         LuckyPool, HeroMiners, real_config)
 
 VARIANT = 1  # pearl_pow_split S=128 4x4 MINB4
 
@@ -274,6 +274,10 @@ def _resolve_pool(args, log):
     a mixed P40 + Ada rig picks the right pool for each card."""
     if args.pool:
         return
+    if args.pool_provider == "herominers":
+        args.pool = "sg.pearl.herominers.com:1200"
+        log("auto-selected HeroMiners Singapore (plain TCP)")
+        return
     cap = _gpu_compute_cap()
     args.pool = POOL_CPU if (cap is not None and cap < 8.0) else POOL_GPU
     log(f"auto-selected pool {args.pool} (GPU compute_cap {cap})")
@@ -313,6 +317,7 @@ def run_supervisor(devices, args, log):
             "--single",
             "--wallet", args.wallet,
             "--worker", f"{args.worker}-gpu{d}",
+            "--pool-provider", args.pool_provider,
             "--region", str(args.region),
         ]
         if args.pool:                       # else the child auto-picks by its GPU class
@@ -353,6 +358,8 @@ def main():
     ap.add_argument("--worker", default="p40")
     ap.add_argument("--pool", default=None,  # auto: Pascal -> CPU pool, sm_80+ -> GPU pool
                     help="Stratum host:port. Default: auto by GPU class.")
+    ap.add_argument("--pool-provider", choices=("luckypool", "herominers"),
+                    default="luckypool", help="Pool protocol and default endpoint")
     ap.add_argument("--region", type=int, default=4096)
     ap.add_argument("--max-regions", type=int, default=0)
     ap.add_argument("--max-jobs", type=int, default=0)
@@ -429,8 +436,10 @@ def run_single_gpu(args, log):
     threading.Thread(target=_proof_worker, args=(proof_q, accepted, log),
                      daemon=True).start()
     while True:
+        pool = None
         try:
-            pool = LuckyPool(host, int(port), sched.wallet, args.worker)
+            pool_class = HeroMiners if args.pool_provider == "herominers" else LuckyPool
+            pool = pool_class(host, int(port), sched.wallet, args.worker)
             pool.connect()
             log(f"authorized ({'DEV FEE round' if sched.mode == 'dev' else 'your wallet'}); "
                 f"waiting for job...")
@@ -465,6 +474,9 @@ def run_single_gpu(args, log):
             time.sleep(5)
         except KeyboardInterrupt:
             log("stopping"); return
+        finally:
+            if pool is not None:
+                pool.close()
 
 
 def run_solo(args, log):

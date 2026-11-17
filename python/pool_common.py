@@ -62,6 +62,14 @@ class LuckyPool:
         line, self.buf = self.buf.split(b"\n", 1)
         return json.loads(line) if line.strip() else None
 
+    def parse_job(self, p):
+        return bytes.fromhex(p["header"]), int(p["target"], 16), p["job_id"]
+
+    def close(self):
+        if self.s is not None:
+            self.s.close()
+            self.s = None
+
     def next_job(self, timeout=70):
         end = time.time() + timeout
         while time.time() < end:
@@ -70,7 +78,7 @@ class LuckyPool:
                 continue
             if msg.get("method") == "mining.notify":
                 p = msg["params"]
-                return bytes.fromhex(p["header"]), int(p["target"], 16), p["job_id"]
+                return self.parse_job(p)
             if msg.get("method") == "mining.set_difficulty":
                 self.difficulty = msg["params"]
                 print(f"  [pool set_difficulty] {msg['params']}")
@@ -105,7 +113,7 @@ class LuckyPool:
                 if msg.get("method") == "mining.notify":
                     p = msg["params"]
                     if p["job_id"] != current_job_id:
-                        newer = (bytes.fromhex(p["header"]), int(p["target"], 16), p["job_id"])
+                        newer = self.parse_job(p)
                 elif msg.get("method") == "mining.set_difficulty":
                     self.difficulty = msg["params"]
             return newer
@@ -126,6 +134,41 @@ class LuckyPool:
                 if msg.get("method") == "mining.notify":
                     self.buf = (json.dumps(msg) + "\n").encode() + self.buf
                     return {"pending_job": True}
+
+
+class HeroMiners(LuckyPool):
+    """HeroMiners object Stratum; v3 proofs only. No GPU code changes."""
+
+    def connect(self):
+        super().connect()
+        pending = []
+        deadline = time.monotonic() + 30
+        try:
+            while time.monotonic() < deadline:
+                msg = self._readline(max(0.01, deadline - time.monotonic()))
+                if msg is None:
+                    raise ConnectionError("HeroMiners authorization timed out")
+                if msg.get("id") == 1:
+                    if msg.get("error") or msg.get("result") is not True:
+                        raise ConnectionError("HeroMiners authorization rejected: " + str(msg.get("error")))
+                    self.buf = b"".join(pending) + self.buf
+                    return
+                pending.append((json.dumps(msg) + "\n").encode())
+            raise ConnectionError("HeroMiners authorization timed out")
+        except Exception:
+            self.close()
+            raise
+
+    def parse_job(self, p):
+        try:
+            if p.get("cert_version") != 3:
+                raise ValueError("requires cert_version 3; refusing incompatible proof work")
+            header, target, job_id = super().parse_job(p)
+            if len(header) != 76 or not 0 < target < (1 << 256) or not isinstance(job_id, str) or not job_id:
+                raise ValueError("invalid header, target or job id")
+            return header, target, job_id
+        except (KeyError, TypeError, ValueError) as e:
+            raise ConnectionError("HeroMiners job rejected: " + str(e)) from e
 
 
 class DevFeeScheduler:

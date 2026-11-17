@@ -1,0 +1,73 @@
+name: Windows HeroMiners build
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RUSTC_BOOTSTRAP: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Protocol tests (no GPU)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m unittest discover -s tests -p test_herominers.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Protocol tests failed' }
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+      - uses: Jimver/cuda-toolkit@c35baa1a18fd1fc9dcf47c5bd839bf30559c0bc3
+        with:
+          cuda: '12.8.0'
+          method: network
+          sub-packages: '["nvcc", "cudart", "cuda_profiler_api", "thrust"]'
+          use-github-cache: 'false'
+      - name: Fetch pinned build dependencies
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git clone https://github.com/NVIDIA/cutlass.git .deps/cutlass
+          if ($LASTEXITCODE -ne 0) { throw 'CUTLASS clone failed' }
+          git -C .deps/cutlass checkout afa1772203677c5118fcd82537a9c8fefbcc7008
+          if ($LASTEXITCODE -ne 0) { throw 'CUTLASS checkout failed' }
+          git clone https://github.com/pearl-research-labs/pearl.git .deps/pearl
+          if ($LASTEXITCODE -ne 0) { throw 'Pearl clone failed' }
+          git -C .deps/pearl checkout 38dd764ab0aec528e81fc467665c6762ef6739e9
+          if ($LASTEXITCODE -ne 0) { throw 'Pearl checkout failed' }
+          "CUTLASS_DIR=$((Resolve-Path .deps/cutlass/include).Path)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build Python proof bindings
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install numpy==2.2.6 blake3==1.0.8 maturin==1.9.6 pyinstaller==6.16.0
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependencies failed' }
+          rustup show
+          python -m maturin build --release --manifest-path .deps/pearl/py-pearl-mining/Cargo.toml --out wheels
+          if ($LASTEXITCODE -ne 0) { throw 'Proof wheel build failed' }
+          $wheel = Get-ChildItem wheels/*.whl | Select-Object -First 1
+          python -m pip install $wheel.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Proof wheel install failed' }
+      - name: Build CUDA and freeze
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./packaging/build_capi.ps1
+          python -m PyInstaller packaging/p40-miner-lite.spec --noconfirm --distpath dist --workpath build_pyi
+          if ($LASTEXITCODE -ne 0) { throw 'Freeze failed' }
+          Copy-Item LICENSE dist/p40-miner/LICENSE.txt
+          Copy-Item README.md dist/p40-miner/README.md
+          Compress-Archive -Path dist/p40-miner -DestinationPath open-pearl-herominers-windows-x64.zip
+          Get-FileHash open-pearl-herominers-windows-x64.zip -Algorithm SHA256 | Format-List | Out-File SHA256.txt -Encoding utf8
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: open-pearl-herominers-windows-x64
+          path: |
+            open-pearl-herominers-windows-x64.zip
+            SHA256.txt
+          if-no-files-found: error
